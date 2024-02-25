@@ -13,18 +13,22 @@
   zfs,
 
   update-nixos-name ? "un",
-  boot-devices ? [],
-  boot-partition-number ? null,
-  uefi-partition-number ? null
+  boot-partitions ? [],
+  uefi-partitions ? []
 } :
 
 
 assert builtins.isString update-nixos-name;
-assert builtins.isList boot-devices;
-assert builtins.length boot-devices > 0;
-assert builtins.all builtins.isString boot-devices;
-assert builtins.isInt boot-partition-number;
-assert builtins.isInt uefi-partition-number;
+
+assert builtins.isList boot-partitions;
+assert builtins.length boot-partitions > 0;
+assert builtins.all builtins.isString boot-partitions;
+
+assert builtins.isList uefi-partitions;
+assert builtins.length uefi-partitions > 0;
+assert builtins.all builtins.isString uefi-partitions;
+
+assert ((builtins.length boot-partitions) == (builtins.length uefi-partitions));
 
 
 writeShellScriptBin
@@ -35,17 +39,27 @@ set \
   -o nounset \
   -o pipefail
 shopt -s shift_verbose
+set -o xtrace
 
 
-BOOT_DEVICES=(
+declare -a BOOT_PARTITIONS
+BOOT_PARTITIONS=(
 ${
-  lib.strings.concatMapStrings (device: " \"" + device + "\"") boot-devices
+  lib.strings.concatMapStrings
+    (partition: " \"" + partition + "\"")
+    boot-partitions
 }
 )
-BOOT_PARTITION_NUMBER=${builtins.toString boot-partition-number}
+declare -a UEFI_PARTITIONS
+UEFI_PARTITIONS=(
+${
+  lib.strings.concatMapStrings
+    (partition: " \"" + partition + "\"")
+    uefi-partitions
+}
+)
 BOOT_ZFS_NAME="NixOS-boot"
 BOOT_ROOT=/boot
-UEFI_PARTITION_NUMBER=${builtins.toString uefi-partition-number}
 UEFI_ROOT=$BOOT_ROOT/efi
 
 UEFI_DM_NAME=uefi
@@ -53,11 +67,10 @@ UEFI_DM_DEVICE="/dev/mapper/$UEFI_DM_NAME"
 BOOT_DM_NAME=boot
 BOOT_DM_DEVICE="/dev/mapper/$BOOT_DM_NAME"
 OPENED_BOOT_NAME=opened_boot
-UEFI_PARTITION_SIZE_IN_SECTORS=
-BOOT_PARTITION_SIZE_IN_SECTORS=
+unset UEFI_PARTITION_SIZE_IN_SECTORS
+unset BOOT_PARTITION_SIZE_IN_SECTORS
 KIBI=$(( 2 ** 10 ))
 MIBI=$(( $KIBI ** 2 ))
-PARTITIONS_IDENTICAL=y
 
 NIXOS_REBUILD_LOG="log.${update-nixos-name}.$(${coreutils}/bin/date)"
 
@@ -75,195 +88,194 @@ usage()
   exit $exit_value
 }
 
-part_dev()
+check_all_partitions()
 {
-  echo "$1-part$2"
-}
+  check_existance_and_equal_size
 
-check_partition()
-{
-  local partition_number_variable="$2_PARTITION_NUMBER"
-  local partition_number=''${!partition_number_variable}
-  local partition_size_variable="$2_PARTITION_SIZE_IN_SECTORS"
-  local partition=$(part_dev $1 ''${partition_number})
-
-  if [[ ! -b $partition ]]
-  then
-    usage 1 "Partition '%s' does not exist, or is not a block device\n" "$partition"
-  fi
-
-  local partition_size=$(${util-linux}/bin/blockdev --getsz "$partition")
-
-  printf "\tChecking partition number %d($2): %s; Size: %d sectors(512 byte)\n" $partition_number $partition $partition_size
-
-  if [[ $partition_size -ne ''${!partition_size_variable:=$partition_size} ]]
-  then
-    usage 2 "Partition size(%d) for partition '%s' is not the same as the size hitherto seen %d\n" $partition_size "$partition" ''${!partition_size_variable}
-  fi
-}
-
-check_device()
-{
-  echo Checking device $1...
-  check_partition $1 UEFI
-  check_partition $1 BOOT
+  check_for_all_identical_partitions
 }
 
 check_existance_and_equal_size()
 {
   local all_devices_exist=y
-
-  if [[ -z "''${BOOT_DEVICES[@]}" ]]
-  then
-    usage 2 "Array BOOT_DEVICES is empty"
-  fi
-
-  for d in "''${BOOT_DEVICES[@]}"
-  do
-    if [[ -b $d ]]
-    then
-      check_device $d
-    else
-      echo Block device $d does not exist
-      all_devices_exist=
-    fi
-  done
+  check_existance_and_equal_size_for_partition_type BOOT
+  check_existance_and_equal_size_for_partition_type UEFI
 
   [[ $all_devices_exist ]]
 
-  echo All devices have UEFI partition size $UEFI_PARTITION_SIZE_IN_SECTORS sectors \
-    and boot partition size $BOOT_PARTITION_SIZE_IN_SECTORS sectors
+  echo "All boot partitions have size $BOOT_PARTITION_SIZE_IN_SECTORS sectors and all UEFI partitions have size $UEFI_PARTITION_SIZE_IN_SECTORS sectors"
 }
 
-check_all_devices()
+check_existance_and_equal_size_for_partition_type()
 {
-  check_existance_and_equal_size
+  local partitions_variable="$1_PARTITIONS"
+  local -n partitions="$partitions_variable"
 
-  check_for_all_identical_devices
+  if [[ -z "''${partitions[@]}" ]]
+  then
+    usage 2 "Array $partitions_variable is empty"
+  fi
+
+  for d in "''${partitions[@]}"
+  do
+    if [[ -b $d ]]
+    then
+      check_partition_size $d $1
+    else
+      echo "Block device for partition '$d'(of type $1) does not exist"
+      all_devices_exist=
+    fi
+  done
+}
+
+check_partition_size()
+{
+  echo "Checking partition $1(type: $2)..."
+
+  local partition_size_variable="$2_PARTITION_SIZE_IN_SECTORS"
+  local partition_size=$(${util-linux}/bin/blockdev --getsz "$1")
+
+  printf "\tSize: %d sectors(512 byte)\n" $partition_size
+
+  if [[ -v $partition_size_variable ]]
+  then
+    if [[ $partition_size -ne ''${!partition_size_variable} ]]
+    then
+      usage 2 "Partition size(%d) for partition '$1' is not the same as the size hitherto seen %d\n" $partition_size ''${!partition_size_variable}
+    fi
+  else
+    : ''${!partition_size_variable:=$partition_size}
+  fi
+}
+
+check_for_all_identical_partitions()
+{
+  local partitions_identical=y
+
+  check_for_identical_partitions_for_type BOOT
+  check_for_identical_partitions_for_type UEFI
+
+  [[ $partitions_identical ]]
+}
+
+check_for_identical_partitions_for_type()
+{
+  local partitions_variable="$1_PARTITIONS"
+  local -n partitions="$partitions_variable"
+  local common_checksum=
+
+  for (( s=0; $s < (''${#partitions[@]} - 1); s++ ))
+  do
+    check_for_identical_partition \
+      "''${partitions[$s]}" \
+      "''${partitions[$(($s + 1))]}"
+  done
 }
 
 check_for_identical_partition()
 {
-  local partition_number_variable=$3_PARTITION_NUMBER
-  local partition_number=''${!partition_number_variable}
-  local first_partition=$(part_dev $1 $partition_number)
-  local second_partition=$(part_dev $2 $partition_number)
+  echo "Comparing partition '$1' with '$2'..."
   local text=identical
 
-  if ${coreutils}/bin/cmp -s $first_partition $second_partition
+  : ''${common_checksum:=$(checksum_partition "$1")}
+
+  if [[ $common_checksum == $(checksum_partition "$2") ]]
   then
     :
   else
-    text="NOT IDENTICAL(cmp returned $?)"
-    PARTITIONS_IDENTICAL=
+    text="NOT IDENTICAL"
+    partitions_identical=
   fi
 
-  echo "Partitions $first_partition and $second_partition are $text"
+  echo "Partitions '$1' and '$2' are $text"
 }
 
-check_for_identical_device()
+checksum_partition()
 {
-  printf "Comparing device %s with %s...\n" $1 $2
-  check_for_identical_partition $1 $2 UEFI
-  check_for_identical_partition $1 $2 BOOT
+  ${coreutils}/bin/dd if="$1" bs=1M iflag=direct | ${coreutils}/bin/sha512sum | ${coreutils}/bin/cut -d ' ' -f 1
 }
 
-check_for_all_identical_devices()
+prepare_all_devices()
 {
-  for (( s=0; $s < (''${#BOOT_DEVICES[@]} - 1); s++ ))
-  do
-    local first_device=''${BOOT_DEVICES[$s]}
-    local second_device=''${BOOT_DEVICES[$(($s + 1))]}
-
-    check_for_identical_device $first_device $second_device
-  done
-
-  [[ $PARTITIONS_IDENTICAL ]]
+  prepare_device UEFI
+  prepare_device BOOT
 }
 
-setup_all_mirror_devices()
+prepare_device()
 {
-  setup_mirror_device UEFI
-  setup_mirror_device BOOT
-}
-
-setup_mirror_device()
-{
-  local partition_number_variable="$1_PARTITION_NUMBER"
-  local partition_size_variable="$1_PARTITION_SIZE_IN_SECTORS"
-  local mirror_name_variable="$1_DM_NAME"
+  local partitions_variable=$1_PARTITIONS
+  local -n partitions="$partitions_variable"
   local device_variable="$1_DM_DEVICE"
   local -n device="$device_variable"
 
-  if [[ ''${#BOOT_DEVICES[@]} == 1 ]]
-  then
-    device="$(part_dev ''${BOOT_DEVICES[0]} ''${!partition_number_variable})"
-  else
-    {
-      echo -n "0 ''${!partition_size_variable} mirror  core 2 $(( ( 1 * $MIBI ) / 512 )) nosync  ''${#BOOT_DEVICES[@]}"
-      for d in "''${BOOT_DEVICES[@]}"
-      do
-        echo -n " $(part_dev $d ''${!partition_number_variable}) 0"
-      done
-      echo "  1 handle_errors"
-    } | ${lvm2}/bin/dmsetup create ''${!mirror_name_variable}
-    device="/dev/mapper/''${!mirror_name_variable}"
-  fi
+  device="''${partitions[0]}"
 }
 
-remove_all_mirror_devices()
+remove_all_devices()
 {
-  remove_mirror_device UEFI
-  remove_mirror_device BOOT
+  remove_device UEFI
+  remove_device BOOT
 }
 
-remove_mirror_device()
+remove_device()
 {
   local mirror_name_variable="$1_DM_NAME"
+  local mirror_device_variable="$1_DM_DEVICE"
 
-  if ${lvm2}/bin/dmsetup info ''${!mirror_name_variable} >& /dev/null
+  if ${lvm2.bin}/bin/dmsetup remove ''${!mirror_name_variable}
   then
-    ${lvm2}/bin/dmsetup remove ''${!mirror_name_variable}
+    :
+  else
+    echo "'dmsetup remove ''${!mirror_name_variable}' returned $?"
   fi
 }
 
 umount_with_check()
 {
-  if ${coreutils}/bin/cut -d ' ' -f 2 /proc/mounts | ${gnugrep}/bin/grep -q "^$1$"
+  if ${umount}/bin/umount $1
   then
-    ${umount}/bin/umount $1
+    :
+  else
+    echo "'umount $1' returned $?"
   fi
 }
 
 close_and_remove_devices()
 {
-  umount_with_check $UEFI_ROOT
-  umount_with_check $BOOT_ROOT
+  umount_with_check "$UEFI_ROOT"
+  umount_with_check "$BOOT_ROOT"
 
-  if ${zfs}/bin/zpool list "$BOOT_ZFS_NAME" >& /dev/null
+  if ${zfs}/bin/zpool export "$BOOT_ZFS_NAME"
   then
-    ${zfs}/bin/zpool export "$BOOT_ZFS_NAME"
+    :
+  else
+    echo "'zpool export $BOOT_ZFS_NAME' returned $?"
   fi
 
-  if ${cryptsetup}/bin/cryptsetup status $OPENED_BOOT_NAME >& /dev/null
+  if ${cryptsetup}/bin/cryptsetup close $OPENED_BOOT_NAME
   then
-    ${cryptsetup}/bin/cryptsetup close $OPENED_BOOT_NAME
+    :
+  else
+    echo "'cryptsetup close $BOOT_ZFS_NAME' returned $?"
   fi
 
-  remove_all_mirror_devices
+  remove_all_devices
 }
 
 setup_and_open_devices()
 {
-  setup_all_mirror_devices
+  prepare_all_devices
 
   echo "Open boot device (LUKS UUID: $(${cryptsetup}/bin/cryptsetup luksUUID $BOOT_DM_DEVICE)):"
   ${cryptsetup}/bin/cryptsetup open $BOOT_DM_DEVICE $OPENED_BOOT_NAME
 
   ${zfs}/bin/zpool import "$BOOT_ZFS_NAME"
 
-  ${mount}/bin/mount -t zfs "$BOOT_ZFS_NAME" $BOOT_ROOT
-  ${mount}/bin/mount $UEFI_DM_DEVICE $UEFI_ROOT
+  ${coreutils}/bin/mkdir -p "$BOOT_ROOT"
+  ${mount}/bin/mount -t zfs "$BOOT_ZFS_NAME" "$BOOT_ROOT"
+
+  ${coreutils}/bin/mkdir -p "$UEFI_ROOT"
+  ${mount}/bin/mount $UEFI_DM_DEVICE "$UEFI_ROOT"
 }
 
 exit_and_check()
@@ -271,7 +283,7 @@ exit_and_check()
   ignore_kill
 
   close_and_remove_devices
-  check_for_all_identical_devices
+  check_for_all_identical_partitions
 }
 
 trap_exit()
@@ -335,6 +347,49 @@ check_and_init()
   setup_and_open_devices
 }
 
+duplicate_partitions()
+{
+  close_and_remove_devices
+
+  setup_mirror BOOT
+  setup_mirror UEFI
+}
+
+setup_mirror()
+{
+  local partitions_variable=$1_PARTITIONS
+  local -n partitions="$partitions_variable"
+  local partition_size_variable="$1_PARTITION_SIZE_IN_SECTORS"
+  local mirror_name_variable="$1_DM_NAME"
+
+  if [[ ''${#partitions[@]} -gt 1 ]]
+  then
+    echo "Checksum of first $1 partition: $(checksum_partition ''${partitions[0]})"
+
+    {
+      echo -n "0 ''${!partition_size_variable} mirror core 2 $(( ( 1 * $MIBI ) / 512 )) sync ''${#partitions[@]}"
+      for d in "''${partitions[@]}"
+      do
+        echo -n " $d 0"
+      done
+      echo " 1 handle_errors"
+    } | ${lvm2.bin}/bin/dmsetup create ''${!mirror_name_variable}
+
+    local curr_event_nr=$(${lvm2.bin}/bin/dmsetup info -c --noheadings -o events "''${!mirror_name_variable}")
+
+    echo "Before wait($1)"
+    ${lvm2.bin}/bin/dmsetup status "''${!mirror_name_variable}"
+    echo "curr_event_nr($1) = $curr_event_nr"
+
+    ${lvm2.bin}/bin/dmsetup wait -v "''${!mirror_name_variable}" $curr_event_nr
+
+    echo "status after wait($1)"
+    ${lvm2.bin}/bin/dmsetup status "''${!mirror_name_variable}"
+
+    ${lvm2.bin}/bin/dmsetup remove "''${!mirror_name_variable}"
+  fi
+}
+
 do_real_upgrade()
 {
   ignore_kill
@@ -357,7 +412,7 @@ do_real_upgrade()
       $NIXOS_REBUILD_OPERATION \
       $NIXOS_REBUILD_UPGRADE_OPTION \
       ''${NIXOS_REBUILD_NIXPKGS:+-I nixpkgs="$NIXOS_REBUILD_NIXPKGS"} \
-      --install-bootloader
+      --install-bootloader --show-trace --verbose
 
     ${coreutils}/bin/cat  <<-  END
 	###
@@ -367,7 +422,8 @@ do_real_upgrade()
 	END
 
     diagnostive_checks "Diagnostive checks after nixos-rebuild..."
-  } &> "$NIXOS_REBUILD_LOG"
+  }
+# &> "$NIXOS_REBUILD_LOG"
 }
 
 handle_args()
@@ -436,7 +492,7 @@ handle_args()
 
 do_upgrade()
 {
-  check_all_devices
+  check_all_partitions
 
   read -p "Upgrade ? (y): "
   if [[ ! ( $REPLY == "" || $REPLY == "y" ) ]]
@@ -447,6 +503,8 @@ do_upgrade()
   check_and_init
 
   do_real_upgrade
+
+  duplicate_partitions
 }
 
 if [[ $EUID == 0 ]]

@@ -1,14 +1,40 @@
 { pkgs ? import <nixpkgs> {} }:
-pkgs.callPackage ./.
-{
+[
 
-# Define your boot devices here:
-#
-# boot-devices =
-# [
-#   "/dev/disk/by-id/your-boot-disk-id"
-# ];
-# boot-partition-number = 42;
-# uefi-partition-number = 142;
+  (
+    pkgs.callPackage ./.
+      {
 
-}
+        update-nixos-name = "un-some-usb-memory";
+        boot-partitions =
+        [
+          "/dev/disk/by-partuuid/<some-boot-partition-uuid>"
+        ];
+        uefi-partitions =
+        [
+          "/dev/disk/by-partuuid/<some-uefi-partition-uuid>"
+        ];
+
+      }
+  )
+
+  (
+    pkgs.callPackage ./.
+      {
+
+        update-nixos-name = "un-some-other-usb-memory-and-and-some-sd-card";
+        boot-partitions =
+        [
+          "/dev/disk/by-partuuid/<some-boot-partition-uuid-on-the-usb-memory>"
+          "/dev/disk/by-partuuid/<some-boot-partition-uuid-on-the-sd-card>"
+        ];
+        uefi-partitions =
+        [
+          "/dev/disk/by-partuuid/<some-uefi-partition-uuid-on-the-usb-memory>"
+          "/dev/disk/by-partuuid/<some-uefi-partition-uuid-on-the-sd-card>"
+        ];
+
+      }
+  )
+
+]
