@@ -39,7 +39,6 @@ set \
   -o nounset \
   -o pipefail
 shopt -s shift_verbose
-set -o xtrace
 
 
 declare -a BOOT_PARTITIONS
