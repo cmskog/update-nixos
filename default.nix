@@ -411,7 +411,7 @@ do_real_upgrade()
       $NIXOS_REBUILD_OPERATION \
       $NIXOS_REBUILD_UPGRADE_OPTION \
       ''${NIXOS_REBUILD_NIXPKGS:+-I nixpkgs="$NIXOS_REBUILD_NIXPKGS"} \
-      --install-bootloader --show-trace --verbose
+      --install-bootloader --show-trace
 
     ${coreutils}/bin/cat  <<-  END
 	###
