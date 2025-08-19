@@ -267,7 +267,7 @@ setup_and_open_devices()
 {
   prepare_all_devices
 
-  echo "Open boot device (LUKS UUID: $(${cryptsetup}/bin/cryptsetup luksUUID $BOOT_DM_DEVICE)):"
+  echo "Open boot device (LUKS UUID: $(${cryptsetup}/bin/cryptsetup luksUUID $BOOT_DM_DEVICE)):" > $(tty)
   ${cryptsetup}/bin/cryptsetup open $BOOT_DM_DEVICE $OPENED_BOOT_NAME
 
   ${zfs}/bin/zpool import "$BOOT_ZFS_NAME"
@@ -495,7 +495,8 @@ do_upgrade()
 {
   check_all_partitions
 
-  read -p "Upgrade ? (y): "
+  echo -n "Start upgrade ? (y): " > $(tty)
+  read
   if [[ ! ( $REPLY == "" || $REPLY == "y" ) ]]
   then
     exit
