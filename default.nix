@@ -34,6 +34,9 @@ assert ((builtins.length boot-partitions) == (builtins.length uefi-partitions));
 writeShellScriptBin
 update-nixos-name
 ''
+readonly NIXOS_REBUILD_LOG="log.${update-nixos-name}.$(${coreutils}/bin/date)"
+exec >& "$NIXOS_REBUILD_LOG"
+
 set \
   -o errexit \
   -o nounset \
@@ -71,7 +74,6 @@ unset BOOT_PARTITION_SIZE_IN_SECTORS
 KIBI=$(( 2 ** 10 ))
 MIBI=$(( $KIBI ** 2 ))
 
-NIXOS_REBUILD_LOG="log.${update-nixos-name}.$(${coreutils}/bin/date)"
 
 usage()
 {
