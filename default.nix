@@ -405,19 +405,19 @@ do_real_upgrade()
     ${coreutils}/bin/cat  <<-  END
 
 	###
-	### Before nixos-rebuild $NIXOS_REBUILD_OPERATION $NIXOS_REBUILD_UPGRADE_OPTION --install-bootloader
+	### Before nixos-rebuild boot $NIXOS_REBUILD_UPGRADE_OPTION --install-bootloader
 	###
 	END
 
     ${nixos-rebuild}/bin/nixos-rebuild \
-      $NIXOS_REBUILD_OPERATION \
+      boot \
       $NIXOS_REBUILD_UPGRADE_OPTION \
       ''${NIXOS_REBUILD_NIXPKGS:+-I nixpkgs="$NIXOS_REBUILD_NIXPKGS"} \
       --install-bootloader --show-trace
 
     ${coreutils}/bin/cat  <<-  END
 	###
-	### After nixos-rebuild $NIXOS_REBUILD_OPERATION $NIXOS_REBUILD_UPGRADE_OPTION --install-bootloader
+	### After nixos-rebuild boot $NIXOS_REBUILD_UPGRADE_OPTION --install-bootloader
 	###
 
 	END
@@ -431,7 +431,6 @@ handle_args()
 {
   # Set defaults
   #
-  NIXOS_REBUILD_OPERATION=dry-build
   unset NIXOS_REBUILD_UPGRADE
   unset NIXOS_REBUILD_NIXPKGS
 
@@ -441,14 +440,6 @@ handle_args()
   while [[ $# -ge 1 ]]
   do
     case $1 in
-
-      (-b)
-        NIXOS_REBUILD_OPERATION=boot
-        ;;
-
-      (-d)
-        NIXOS_REBUILD_OPERATION=dry-build
-        ;;
 
       (-n)
         if [[ $# -gt 1 ]]
@@ -467,16 +458,12 @@ handle_args()
         fi
         ;;
 
-      (-s)
-        NIXOS_REBUILD_OPERATION=switch
-        ;;
-
       (-u)
         NIXOS_REBUILD_UPGRADE=y
         ;;
 
       (*)
-        usage 1 "Usage: %s [-b | -d | -s] [-n <Path to nixpkgs directory>] [-u]" "$0"
+        usage 1 "Usage: %s [-n <Path to nixpkgs directory>] [-u]" "$0"
         ;;
 
     esac
@@ -486,7 +473,6 @@ handle_args()
 
   NIXOS_REBUILD_UPGRADE_OPTION="''${NIXOS_REBUILD_UPGRADE:+--upgrade}"
 
-  echo "nixos-rebuild operation=$NIXOS_REBUILD_OPERATION"
   echo "nixos-rebuild upgrade=''${NIXOS_REBUILD_UPGRADE:-n}"
   echo "nixos-rebuild nixpkgs tweak=''${NIXOS_REBUILD_NIXPKGS:-(none)}"
 }
