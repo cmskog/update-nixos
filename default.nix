@@ -84,7 +84,7 @@ usage()
   fmt+='\n'
   shift
 
-  printf "$fmt" "$@" >&2
+  printf "$fmt" "$@" > $(tty)
 
   exit $exit_value
 }
