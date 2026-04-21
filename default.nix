@@ -6,6 +6,7 @@
   lib,
   lvm2,
   mount,
+  nix,
   nixos-rebuild,
   umount,
   util-linux,
@@ -42,6 +43,7 @@ set \
   -o nounset \
   -o pipefail
 shopt -s shift_verbose
+set -x
 
 
 declare -a BOOT_PARTITIONS
@@ -325,17 +327,27 @@ diagnostive_checks()
 
 	$(diagnostive_check_dir "''${BOOT_ROOT}")
 
-	###
-	### Output of "''${BOOT_ROOT}/grub/x86_64-efi/load.cfg"
-	###
+	if [[ -f ''${BOOT_ROOT}/grub/x86_64-efi/load.cfg ]]
+	then
+	  ###
+	  ### Output of "''${BOOT_ROOT}/grub/x86_64-efi/load.cfg"
+	  ###
 
-        $(${coreutils}/bin/cat "''${BOOT_ROOT}/grub/x86_64-efi/load.cfg")
+	  $(< "''${BOOT_ROOT}/grub/x86_64-efi/load.cfg")
+	else
+	  echo "''${BOOT_ROOT}/grub/x86_64-efi/load.cfg does not exist"
+	fi
 
-	###
-	### Output of "''${BOOT_ROOT}/grub/grub.cfg"
-	###
+	if [[ -f ''${BOOT_ROOT}/grub/grub.cfg ]]
+	then
+	  ###
+	  ### Output of "''${BOOT_ROOT}/grub/grub.cfg"
+	  ###
 
-        $(${coreutils}/bin/cat "''${BOOT_ROOT}/grub/grub.cfg")
+	  $(< "''${BOOT_ROOT}/grub/grub.cfg")
+	then
+	  echo "''${BOOT_ROOT}/grub/grub.cfg does not exist"
+	fi
 
 	$(diagnostive_check_dir "''${UEFI_ROOT}")
 
@@ -393,38 +405,43 @@ setup_mirror()
 
 do_real_upgrade()
 {
+  if [[ ''${NIXOS_REBUILD_UPGRADE:-} ]]
+  then
+    ${nix}/bin/nix-channel --update
+  else
+    echo "Not updating"
+  fi
+
   ignore_kill
 
-  echo "nixos-rebuild log in file '$NIXOS_REBUILD_LOG'..."
+  NIXOS_BUILD_RESULT_DIR="$(${coreutils}/bin/mktemp --tmpdir --directory "${update-nixos-name}.XXXXXX")"
+  NIXOS_BUILD_RESULT="''${NIXOS_BUILD_RESULT_DIR}"/result
+  echo "NIXOS_BUILD_RESULT = $NIXOS_BUILD_RESULT"
 
-  # Pick up the output of df before and after nixos-rebuild,
-  # and the output of nixos-rebuild itself, in the log file
-  {
-    diagnostive_checks "Diagnostive checks before nixos-rebuild..."
+  (cd "$NIXOS_BUILD_RESULT_DIR" && ${lib.getExe nixos-rebuild} build)
 
-    ${coreutils}/bin/cat  <<-  END
+  # Set new build as system profile
+  nix-env -p /nix/var/nix/profiles/system --set "$NIXOS_BUILD_RESULT"
+
+  diagnostive_checks "Diagnostive checks before switch-to-configuration..."
+
+  ${coreutils}/bin/cat  <<-  END
 
 	###
-	### Before nixos-rebuild boot $NIXOS_REBUILD_UPGRADE_OPTION --install-bootloader
+	### Before switch-to-configuration...
 	###
 	END
 
-    ${nixos-rebuild}/bin/nixos-rebuild \
-      boot \
-      $NIXOS_REBUILD_UPGRADE_OPTION \
-      ''${NIXOS_REBUILD_NIXPKGS:+-I nixpkgs="$NIXOS_REBUILD_NIXPKGS"} \
-      --install-bootloader --show-trace
+  NIXOS_INSTALL_BOOTLOADER=1 "$NIXOS_BUILD_RESULT"/bin/switch-to-configuration boot
 
-    ${coreutils}/bin/cat  <<-  END
+  ${coreutils}/bin/cat  <<-  END
 	###
-	### After nixos-rebuild boot $NIXOS_REBUILD_UPGRADE_OPTION --install-bootloader
+	### After switch-to-configuration...
 	###
 
 	END
 
-    diagnostive_checks "Diagnostive checks after nixos-rebuild..."
-  }
-# &> "$NIXOS_REBUILD_LOG"
+  diagnostive_checks "Diagnostive checks after switch-to-configuration..."
 }
 
 handle_args()
@@ -470,8 +487,6 @@ handle_args()
 
     shift
   done
-
-  NIXOS_REBUILD_UPGRADE_OPTION="''${NIXOS_REBUILD_UPGRADE:+--upgrade}"
 
   echo "nixos-rebuild upgrade=''${NIXOS_REBUILD_UPGRADE:-n}"
   echo "nixos-rebuild nixpkgs tweak=''${NIXOS_REBUILD_NIXPKGS:-(none)}"
