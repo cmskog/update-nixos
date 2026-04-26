@@ -412,8 +412,6 @@ do_real_upgrade()
     echo "Not updating"
   fi
 
-  ignore_kill
-
   NIXOS_BUILD_RESULT_DIR="$(${coreutils}/bin/mktemp --tmpdir --directory "${update-nixos-name}.XXXXXX")"
   NIXOS_BUILD_RESULT="''${NIXOS_BUILD_RESULT_DIR}"/result
   echo "NIXOS_BUILD_RESULT = $NIXOS_BUILD_RESULT"
@@ -422,6 +420,9 @@ do_real_upgrade()
 
   # Set new build as system profile
   nix-env -p /nix/var/nix/profiles/system --set "$NIXOS_BUILD_RESULT"
+
+  check_and_init
+  ignore_kill
 
   diagnostive_checks "Diagnostive checks before switch-to-configuration..."
 
@@ -502,8 +503,6 @@ do_upgrade()
   then
     exit
   fi
-
-  check_and_init
 
   do_real_upgrade
 
