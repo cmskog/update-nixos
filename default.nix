@@ -73,6 +73,7 @@ BOOT_DM_DEVICE="/dev/mapper/$BOOT_DM_NAME"
 OPENED_BOOT_NAME=opened_boot
 unset UEFI_PARTITION_SIZE_IN_SECTORS
 unset BOOT_PARTITION_SIZE_IN_SECTORS
+unset NIXOS_BUILD_RESULT_DIR
 KIBI=$(( 2 ** 10 ))
 MIBI=$(( $KIBI ** 2 ))
 
@@ -284,6 +285,11 @@ setup_and_open_devices()
 exit_and_check()
 {
   ignore_kill
+
+  if [[ ''${NIXOS_BUILD_RESULT_DIR:-} ]]
+  then
+    rm -rf "$NIXOS_BUILD_RESULT_DIR"
+  fi
 
   close_and_remove_devices
   check_for_all_identical_partitions
