@@ -35,6 +35,7 @@ assert ((builtins.length boot-partitions) == (builtins.length uefi-partitions));
 writeShellScriptBin
 update-nixos-name
 ''
+PATH=
 readonly NIXOS_REBUILD_LOG="log.${update-nixos-name}.$(${coreutils}/bin/date)"
 exec >& "$NIXOS_REBUILD_LOG"
 
@@ -87,7 +88,7 @@ usage()
   fmt+='\n'
   shift
 
-  printf "$fmt" "$@" > $(tty)
+  printf "$fmt" "$@" > $(${coreutils}/bin/tty)
 
   exit $exit_value
 }
@@ -270,7 +271,7 @@ setup_and_open_devices()
 {
   prepare_all_devices
 
-  echo "Open boot device (LUKS UUID: $(${cryptsetup}/bin/cryptsetup luksUUID $BOOT_DM_DEVICE)):" > $(tty)
+  echo "Open boot device (LUKS UUID: $(${cryptsetup}/bin/cryptsetup luksUUID $BOOT_DM_DEVICE)):" > $(${coreutils}/bin/tty)
   ${cryptsetup}/bin/cryptsetup open $BOOT_DM_DEVICE $OPENED_BOOT_NAME
 
   ${zfs}/bin/zpool import "$BOOT_ZFS_NAME"
@@ -288,7 +289,7 @@ exit_and_check()
 
   if [[ ''${NIXOS_BUILD_RESULT_DIR:-} ]]
   then
-    rm -rf "$NIXOS_BUILD_RESULT_DIR"
+    ${coreutils}/bin/rm -rf "$NIXOS_BUILD_RESULT_DIR"
   fi
 
   close_and_remove_devices
@@ -425,7 +426,7 @@ do_real_upgrade()
   (cd "$NIXOS_BUILD_RESULT_DIR" && ${lib.getExe nixos-rebuild} build)
 
   # Set new build as system profile
-  nix-env -p /nix/var/nix/profiles/system --set "$NIXOS_BUILD_RESULT"
+  ${nix}/bin/nix-env -p /nix/var/nix/profiles/system --set "$NIXOS_BUILD_RESULT"
 
   check_and_init
   ignore_kill
@@ -503,7 +504,7 @@ do_upgrade()
 {
   check_all_partitions
 
-  echo -n "Start upgrade ? (y): " > $(tty)
+  echo -n "Start upgrade ? (y): " > $(${coreutils}/bin/tty)
   read
   if [[ ! ( $REPLY == "" || $REPLY == "y" ) ]]
   then
