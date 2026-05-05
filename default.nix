@@ -428,6 +428,15 @@ do_real_upgrade()
   # Set new build as system profile
   ${nix}/bin/nix-env -p /nix/var/nix/profiles/system --set "$NIXOS_BUILD_RESULT"
 
+  echo -n "Do you have the drive with your partitions(${update-nixos-name}) inserted ? (y): " > $(${coreutils}/bin/tty)
+  read
+  if [[ ! ( $REPLY == "" || $REPLY == "y" ) ]]
+  then
+    exit
+  fi
+
+  check_all_partitions
+
   check_and_init
   ignore_kill
 
@@ -502,15 +511,6 @@ handle_args()
 
 do_upgrade()
 {
-  check_all_partitions
-
-  echo -n "Start upgrade ? (y): " > $(${coreutils}/bin/tty)
-  read
-  if [[ ! ( $REPLY == "" || $REPLY == "y" ) ]]
-  then
-    exit
-  fi
-
   do_real_upgrade
 
   duplicate_partitions
