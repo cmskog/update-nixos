@@ -35,7 +35,8 @@ assert ((builtins.length boot-partitions) == (builtins.length uefi-partitions));
 writeShellScriptBin
 update-nixos-name
 ''
-PATH=
+unset PATH
+EXECIGNORE='*'
 readonly NIXOS_REBUILD_LOG="log.${update-nixos-name}.$(${coreutils}/bin/date)"
 exec >& "$NIXOS_REBUILD_LOG"
 
@@ -43,7 +44,10 @@ set \
   -o errexit \
   -o nounset \
   -o pipefail
-shopt -s shift_verbose
+shopt \
+  -s \
+    shift_verbose \
+    inherit_errexit
 set -x
 
 
@@ -93,22 +97,18 @@ usage()
   exit $exit_value
 }
 
-check_all_partitions()
-{
-  check_existance_and_equal_size
-
-  check_for_all_identical_partitions
-}
-
 check_existance_and_equal_size()
 {
   local all_devices_exist=y
   check_existance_and_equal_size_for_partition_type BOOT
   check_existance_and_equal_size_for_partition_type UEFI
 
-  [[ $all_devices_exist ]]
-
-  echo "All boot partitions have size $BOOT_PARTITION_SIZE_IN_SECTORS sectors and all UEFI partitions have size $UEFI_PARTITION_SIZE_IN_SECTORS sectors"
+  if [[ $all_devices_exist ]]
+  then
+    echo "All boot partitions have size $BOOT_PARTITION_SIZE_IN_SECTORS sectors and all UEFI partitions have size $UEFI_PARTITION_SIZE_IN_SECTORS sectors"
+  else
+    return 1
+  fi
 }
 
 check_existance_and_equal_size_for_partition_type()
@@ -160,7 +160,10 @@ check_for_all_identical_partitions()
   check_for_identical_partitions_for_type BOOT
   check_for_identical_partitions_for_type UEFI
 
-  [[ $partitions_identical ]]
+  if ! [[ $partitions_identical ]]
+  then
+    exit
+  fi
 }
 
 check_for_identical_partitions_for_type()
@@ -410,35 +413,47 @@ setup_mirror()
   fi
 }
 
+query_user_about_disc()
+{
+  echo -n "Press any key when you have the drive(s) with your partitions(script name is '${update-nixos-name}') inserted:" > $(${coreutils}/bin/tty)
+  # The user might press CTRL-D(EOL, which results in read returning 1), which is also OK
+  if read;then :;else :;fi
+}
+
 do_real_upgrade()
 {
   if [[ ''${NIXOS_REBUILD_UPGRADE:-} ]]
   then
     ${nix}/bin/nix-channel --update
   else
-    echo "Not updating"
+    echo "Not updating channel"
   fi
 
   NIXOS_BUILD_RESULT_DIR="$(${coreutils}/bin/mktemp --tmpdir --directory "${update-nixos-name}.XXXXXX")"
   NIXOS_BUILD_RESULT="''${NIXOS_BUILD_RESULT_DIR}"/result
   echo "NIXOS_BUILD_RESULT = $NIXOS_BUILD_RESULT"
 
-  (cd "$NIXOS_BUILD_RESULT_DIR" && ${lib.getExe nixos-rebuild} build)
+  (cd "$NIXOS_BUILD_RESULT_DIR" \
+    && \
+    ${lib.getExe nixos-rebuild} build \
+      --include nixos-config=/etc/nixos/configuration.nix \
+      ''${NIXOS_REBUILD_NIXPKGS:+--include nixpkgs="$NIXOS_REBUILD_NIXPKGS"} \
+  )
 
-  # Set new build as system profile
-  ${nix}/bin/nix-env -p /nix/var/nix/profiles/system --set "$NIXOS_BUILD_RESULT"
+  until query_user_about_disc ; check_existance_and_equal_size
+  do
+    echo -e "Nope. Not the right disc.\nTry again..." > $(${coreutils}/bin/tty)
+  done
 
-  echo -n "Do you have the drive with your partitions(${update-nixos-name}) inserted ? (y): " > $(${coreutils}/bin/tty)
-  read
-  if [[ ! ( $REPLY == "" || $REPLY == "y" ) ]]
-  then
-    exit
-  fi
-
-  check_all_partitions
+  check_for_all_identical_partitions
 
   check_and_init
   ignore_kill
+
+  # Set new build as system profile
+  ${lib.getExe' nix "nix-env"} \
+    --profile /nix/var/nix/profiles/system \
+    --set "$NIXOS_BUILD_RESULT"
 
   diagnostive_checks "Diagnostive checks before switch-to-configuration..."
 
