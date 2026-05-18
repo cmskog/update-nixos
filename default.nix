@@ -40,6 +40,12 @@ EXECIGNORE='*'
 readonly NIXOS_REBUILD_LOG="log.${update-nixos-name}.$(${coreutils}/bin/date)"
 exec >& "$NIXOS_REBUILD_LOG"
 
+# If we are under sudo, make an effort to chown the log
+if [[ ''${SUDO_UID:-} && ''${SUDO_GID:-} ]]
+then
+  ${lib.getExe' coreutils "chown"} $SUDO_UID:$SUDO_GID "$NIXOS_REBUILD_LOG"
+fi
+
 set \
   -o errexit \
   -o nounset \
